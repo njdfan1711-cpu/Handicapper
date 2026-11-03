@@ -1,0 +1,7 @@
+{
+  "weights": {"speed": 0.30, "class": 0.20, "distance": 0.15, "connections": 0.15, "equipment": 0.10, "workouts": 0.10},
+  "softmax_temperature": 1.0,
+  "race_date": "31Oct26",
+  "equipment_points": {"front_wraps_last_start": -1.0, "blinkers_last_start": 0.0, "lasix_last_start": 0.2},
+  "route_dist_tokens": ["1¼","1Ê","1Ã","1Â","1½","1Ä"]
+}
