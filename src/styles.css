@@ -94,3 +94,12 @@ h3 { font: 700 24px/1 var(--display); }
 .slider b { text-align: right; font-variant-numeric: tabular-nums; }
 @media (min-width: 820px) { .scrim { align-items: center; } .sheet { border-radius: 12px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+.scratchbtn { margin-top: 12px; width: 100%; min-height: 44px; background: var(--surface); border: 1px solid var(--flag); color: var(--flag); border-radius: 6px; font-weight: 600; }
+.scratched { margin-top: 14px; }
+.srow { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 1px dashed var(--rule); border-radius: 6px; margin-bottom: 6px; background: transparent; }
+.srow .cloth { opacity: .5; }
+.sname { flex: 1; color: var(--muted); text-decoration: line-through; font: 600 19px/1.1 var(--display); }
+.ghost.small { min-height: 36px; padding: 4px 12px; font-size: 14px; }
+.linkbtn { background: none; border: 0; color: var(--turf); font-weight: 600; padding: 4px 0; min-height: 32px; }
+.combos .empty { color: var(--muted); font-size: 14px; }
