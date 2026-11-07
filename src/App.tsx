@@ -1,22 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import raw from './data/card.json'
-import type { Card, Factor, Race, Weights } from './lib/types'
+import raw from './data/cards.json'
+import type { CardsFile, Factor, Race, Weights } from './lib/types'
 import { FACTORS, FACTOR_LABEL, scoreRace, topCombos, type Scored } from './lib/score'
+import { STYLE_NAME, scenarioText } from './lib/pace'
+import { CLOTH } from './lib/cloth'
+import SimPanel from './SimPanel'
 
-const data = raw as unknown as Card
+const data = raw as unknown as CardsFile
 const STORE = 'handicapper.settings.v1'
-const SCR = 'handicapper.scratches.v1'
-function loadScratches(): Record<number, number[]> {
-  try { return JSON.parse(localStorage.getItem(SCR) || '{}') || {} } catch { return {} }
-}
+const SCR = 'handicapper.scratches.v2'
 
-const CLOTH: Record<number, [string, string]> = {
-  1: ['#D7263D', '#fff'], 2: ['#FFFFFF', '#1F2A33'], 3: ['#1D5FD1', '#fff'], 4: ['#F2C318', '#1F2A33'],
-  5: ['#1E9E4A', '#fff'], 6: ['#1A1A1A', '#fff'], 7: ['#F28C1B', '#1F2A33'], 8: ['#F2A0C0', '#1F2A33'],
-  9: ['#1FB5B0', '#1F2A33'], 10: ['#7B3FA0', '#fff'], 11: ['#B8BEC6', '#1F2A33'], 12: ['#A6D12B', '#1F2A33'],
-  13: ['#6B7A2A', '#fff'], 14: ['#8B5A2B', '#fff'], 15: ['#5B6C8F', '#fff'], 16: ['#E8C9A0', '#1F2A33'],
-  17: ['#2C5E4A', '#fff'], 18: ['#A33A6B', '#fff'],
-}
 function Cloth({ n }: { n: number }) {
   const [bg, fg] = CLOTH[n] ?? ['#888', '#fff']
   return <span className="cloth" style={{ background: bg, color: fg }}>{n}</span>
@@ -32,53 +25,60 @@ const MODES = [
 function shortName(r: Race) {
   if (r.title.startsWith("Breeders' Cup ")) return r.title.replace("Breeders' Cup ", '').replace('Filly & Mare', 'F&M')
   if (r.title.startsWith('Optional Claiming')) return 'Opt Clm'
-  return r.title.replace(' Special', '')
+  return r.title.replace(' Special', '').replace(/ S\.$/, '').replace('Churchill Distaff Turf Mile', 'Distaff Turf Mile').replace('Derby City Distaff', 'Distaff')
 }
-function surface(r: Race) { return r.distSurface.includes('Turf') ? 'turf' : 'dirt' }
 function meta(r: Race) {
   const [dist, , age] = r.distSurface.split(' - ')
   const ageText = (age ?? '').replace('Ages ', '').replace('Age ', '').replace('×', '+')
-  return { dist, surf: surface(r) === 'turf' ? 'Turf' : 'Dirt', age: ageText ? `${ageText}yo` : '' }
+  return { dist, surf: r.surface === 'turf' ? 'Turf' : 'Dirt', age: ageText ? `${ageText}yo` : '' }
 }
 const pct = (p: number) => (p * 100 >= 10 ? (p * 100).toFixed(0) : (p * 100).toFixed(1)) + '%'
 const modelOdds = (p: number) => { const o = (1 - p) / p; return (o < 10 ? o.toFixed(1) : o.toFixed(0)) + '-1' }
+const styleClass = (s: string | null) => (s ? 's-' + s.replace('/', '') : 's-none')
 
 function loadSettings(): { weights: Weights; temp: number } {
   try {
     const s = JSON.parse(localStorage.getItem(STORE) || 'null')
-    if (s && s.weights && typeof s.temp === 'number') return s
+    if (s && s.weights && typeof s.temp === 'number') return { weights: { ...data.weights, ...s.weights }, temp: s.temp }
   } catch { /* ignore */ }
   return { weights: data.weights, temp: data.temperature }
 }
+function loadScratches(): Record<string, number[]> {
+  try { return JSON.parse(localStorage.getItem(SCR) || '{}') || {} } catch { return {} }
+}
 
 export default function App() {
-  const [raceIdx, setRaceIdx] = useState(data.races.length - 1)
+  const [cardIdx, setCardIdx] = useState(data.cards.length - 1)
+  const card = data.cards[cardIdx]
+  const [raceIdx, setRaceIdx] = useState(card.races.length - 1)
   const [mode, setMode] = useState<(typeof MODES)[number]['key']>('win')
   const [openPP, setOpenPP] = useState<number | null>(null)
   const [sheet, setSheet] = useState(false)
   const [{ weights, temp }, setSettings] = useState(loadSettings)
-  const [scratches, setScratches] = useState<Record<number, number[]>>(loadScratches)
+  const [scratches, setScratches] = useState<Record<string, number[]>>(loadScratches)
 
   useEffect(() => { try { localStorage.setItem(STORE, JSON.stringify({ weights, temp })) } catch { /* ignore */ } }, [weights, temp])
   useEffect(() => { try { localStorage.setItem(SCR, JSON.stringify(scratches)) } catch { /* ignore */ } }, [scratches])
-  useEffect(() => { setOpenPP(null) }, [raceIdx])
+  useEffect(() => { setOpenPP(null) }, [raceIdx, cardIdx])
   useEffect(() => {
     document.querySelector('.tab[aria-pressed="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' })
-  }, [raceIdx])
+  }, [raceIdx, cardIdx])
 
-  const race = data.races[raceIdx]
+  const race = card.races[Math.min(raceIdx, card.races.length - 1)]
+  const key = `${card.id}:${race.n}`
+  const saved = scratches[key]
+  const scratchedPPs = saved ?? race.scratched
   const normW = useMemo(() => {
-    const sum = FACTORS.reduce((s, f) => s + weights[f], 0) || 1
-    return Object.fromEntries(FACTORS.map(f => [f, weights[f] / sum])) as Weights
+    const sum = FACTORS.reduce((s, f) => s + (weights[f] ?? 0), 0) || 1
+    return Object.fromEntries(FACTORS.map(f => [f, (weights[f] ?? 0) / sum])) as Weights
   }, [weights])
-  const scratchedPPs = scratches[race.n] ?? []
   const active = useMemo(() => race.horses.filter(h => !scratchedPPs.includes(h.pp)), [race, scratchedPPs])
   const scratchedHorses = race.horses.filter(h => scratchedPPs.includes(h.pp))
   const toggleScratch = (pp: number) => {
     setOpenPP(null)
     setScratches(s => {
-      const cur = s[race.n] ?? []
-      return { ...s, [race.n]: cur.includes(pp) ? cur.filter(x => x !== pp) : [...cur, pp] }
+      const cur = s[key] ?? race.scratched
+      return { ...s, [key]: cur.includes(pp) ? cur.filter(x => x !== pp) : [...cur, pp] }
     })
   }
   const scored = useMemo(() => scoreRace(active, normW, temp), [active, normW, temp])
@@ -86,20 +86,29 @@ export default function App() {
   const m = MODES.find(x => x.key === mode)!
   const combos = useMemo(() => topCombos(scored.map(s => s.prob), m.k, m.k === 1 ? 3 : 4), [scored, m.k])
   const mm = meta(race)
+  const pickCard = (i: number) => { setCardIdx(i); setRaceIdx(data.cards[i].races.length - 1) }
 
   return (
     <div className="app">
       <header className="top">
         <div>
           <h1>Handicapper</h1>
-          <p className="sub">{data.meta.track}, {data.meta.date}</p>
+          <p className="sub">{card.meta.track}, {card.meta.date}</p>
         </div>
         <button className="ghost" onClick={() => setSheet(true)}>Weights</button>
       </header>
 
+      {data.cards.length > 1 && (
+        <div className="cardpick" role="group" aria-label="Card">
+          {data.cards.map((c, i) => (
+            <button key={c.id} aria-pressed={i === cardIdx} onClick={() => pickCard(i)}>{c.meta.track} {c.meta.date.slice(-4)}</button>
+          ))}
+        </div>
+      )}
+
       <nav className="tabs" aria-label="Races">
-        {data.races.map((r, i) => (
-          <button key={r.n} className={`tab ${surface(r)}`} aria-pressed={i === raceIdx} onClick={() => setRaceIdx(i)}>
+        {card.races.map((r, i) => (
+          <button key={r.n} className={`tab ${r.surface}`} aria-pressed={i === raceIdx} onClick={() => setRaceIdx(i)}>
             <span className="tabnum">{r.n}</span>
             <span className="tabname">{shortName(r)}</span>
           </button>
@@ -113,7 +122,7 @@ export default function App() {
             <h2>{race.title}</h2>
           </div>
           <p className="facts">
-            <span className={`surf ${surface(race)}`}>{mm.surf}</span>
+            <span className={`surf ${race.surface}`}>{mm.surf}</span>
             <span>{mm.dist}</span>
             <span>{mm.age}</span>
             {race.purse && <span>${race.purse}</span>}
@@ -155,16 +164,20 @@ export default function App() {
               <li><b>Model odds</b>: that chance as odds. 2.0-1 means about a 1 in 3 chance.</li>
               <li><b>ML and pts</b>: the morning line, then how many percentage points the model is above (+) or below (−) what the morning line implies.</li>
               <li><b>Factor numbers</b>: how the horse ranks against this field on each factor. 0 is average, and a factor with no data counts as 0.</li>
+              <li><b>E, E/P, P, S</b>: running style from recent races. E wants the lead, E/P sits just off it, P is mid-pack, S is a closer.</li>
+              <li><b>Pace fit</b>: scores each style against this field's pace matchup. It is off by default because it has not shown an edge in testing.</li>
             </ul>
           </details>
         </section>
+
+        {scored.length >= 2 && <SimPanel key={key} race={race} scored={scored} weights={normW} />}
 
         <section className="field" aria-label="Field ranked by model">
           <div className="fieldhead"><span>Horse</span><span>Model vs morning line</span></div>
           {ranked.map(s => <Row key={s.horse.pp} s={s} open={openPP === s.horse.pp} toggle={() => setOpenPP(openPP === s.horse.pp ? null : s.horse.pp)} max={ranked[0].prob} onScratch={() => toggleScratch(s.horse.pp)} />)}
           {scratchedHorses.length > 0 && (
             <div className="scratched">
-              <div className="fieldhead"><span>Scratched</span><button className="linkbtn" onClick={() => setScratches(s => ({ ...s, [race.n]: [] }))}>Restore all</button></div>
+              <div className="fieldhead"><span>Scratched{saved === undefined ? ' (official scratches and also-eligibles)' : ''}</span><button className="linkbtn" onClick={() => setScratches(s => ({ ...s, [key]: [] }))}>Restore all</button></div>
               {scratchedHorses.map(h => (
                 <div key={h.pp} className="srow">
                   <Cloth n={h.pp} />
@@ -193,7 +206,7 @@ function Row({ s, open, toggle, max, onScratch }: { s: Scored; open: boolean; to
         <Cloth n={h.pp} />
         <span className="who">
           <span className="hname">{h.name}{h.lowConf.length > 0 && <em className="thin" title={`Thin data: ${h.lowConf.join(', ')}`}>thin data</em>}</span>
-          <span className="hsub">{h.jockey ?? '—'} for {h.trainer ?? '—'}</span>
+          <span className="hsub"><b className={`sty ${styleClass(h.style)}`} title={h.style ? STYLE_NAME[h.style] : 'No running style yet'}>{h.style ?? '–'}</b>{h.jockey ?? '—'} for {h.trainer ?? '—'}</span>
         </span>
         <span className="nums">
           <b>{pct(s.prob)}</b>
@@ -208,9 +221,13 @@ function Row({ s, open, toggle, max, onScratch }: { s: Scored; open: boolean; to
 
 function Detail({ s, onScratch }: { s: Scored; onScratch: () => void }) {
   const h = s.horse
+  const gain = h.lateGain
   return (
     <div className="detail">
-      <p className="bio">{h.age ?? ''}{h.sex ?? ''}, by {h.sire ?? 'unknown'}. {h.jWin === null && h.tWin === null ? 'No U.S. win rates for this jockey or trainer, so that factor counts as average.' : `Jockey wins ${h.jWin ?? 'n/a'}${h.jWin !== null ? '%' : ''}, trainer wins ${h.tWin ?? 'n/a'}${h.tWin !== null ? '%' : ''}.`}</p>
+      <p className="bio">{h.age ?? ''}{h.sex ?? ''}, by {h.sire ?? 'unknown'}. {h.jWin === null && h.tWin === null ? 'No U.S. win rates for this jockey or trainer, so that factor counts as average.' : `Jockey wins ${h.jWin ?? 'n/a'}${h.jWin !== null ? '%' : ''}, trainer wins ${h.tWin ?? 'n/a'}${h.tWin !== null ? '%' : ''}.`}{h.lowConf.includes('workouts') ? ' Workouts count as average because his earlier works were not in this card.' : ''}</p>
+      {h.style && h.earlyLen !== null && gain !== null
+        ? <p className="bio"><b>{STYLE_NAME[h.style]}.</b> Usually {h.earlyLen <= 0 ? 'on the lead' : `${h.earlyLen.toFixed(1)} lengths off the lead`} at the first call, and {gain >= 0 ? `gains ${gain.toFixed(1)}` : `loses ${Math.abs(gain).toFixed(1)}`} lengths from there to the finish (last {h.paceRuns} races).</p>
+        : <p className="bio">No running style yet: no usable pace calls in recent races.</p>}
       <p className="cap">How this horse compares with the rest of the field. 0 is average, +1 is about one step above, and the bars cap at ±2.5.</p>
       <div className="factors">
         {FACTORS.map((f: Factor) => (
@@ -242,17 +259,17 @@ function Detail({ s, onScratch }: { s: Scored; onScratch: () => void }) {
 function Sheet({ weights, temp, onChange, onReset, onClose }: {
   weights: Weights; temp: number; onChange: (w: Weights, t: number) => void; onReset: () => void; onClose: () => void
 }) {
-  const sum = FACTORS.reduce((s, f) => s + weights[f], 0) || 1
+  const sum = FACTORS.reduce((s, f) => s + (weights[f] ?? 0), 0) || 1
   return (
     <div className="scrim" onClick={onClose}>
       <div className="sheet" role="dialog" aria-label="Model weights" onClick={e => e.stopPropagation()}>
         <div className="sheethead"><h3>Model weights</h3><button className="ghost" onClick={onClose}>Done</button></div>
-        <p className="note">Weights are relative. Each slider's share of the total is shown on the right.</p>
+        <p className="note">Weights are relative. Each slider's share of the total is shown on the right. The simulation uses these weights (except Pace fit) as each horse's ability.</p>
         {FACTORS.map(f => (
           <label key={f} className="slider">
             <span>{FACTOR_LABEL[f]}</span>
-            <input type="range" min={0} max={0.6} step={0.01} value={weights[f]} onChange={e => onChange({ ...weights, [f]: Number(e.target.value) }, temp)} />
-            <b>{Math.round((weights[f] / sum) * 100)}%</b>
+            <input type="range" min={0} max={0.6} step={0.01} value={weights[f] ?? 0} onChange={e => onChange({ ...weights, [f]: Number(e.target.value) }, temp)} />
+            <b>{Math.round(((weights[f] ?? 0) / sum) * 100)}%</b>
           </label>
         ))}
         <label className="slider">

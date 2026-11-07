@@ -36,7 +36,11 @@ def raw_features(h, race):
     f['equipment']=e
     wk=[w for w in h['works'] if (RACE_DATE-datetime.strptime(w['date'],'%d%b%y')).days<=35]
     bul=sum(1 for w in wk if w['rank']==1)
-    f['workouts']=min(len(wk),5)+1.5*min(bul,2) if h['works'] else None
+    # Overseas horses (no U.S. trainer stats) have their home works missing from the PDF -> treat as unknown, not bad.
+    us_based = h.get('t_win') is not None
+    f['workouts']=(min(len(wk),5)+1.5*min(bul,2)) if (h['works'] and us_based) else None
+    n=len(h['pps'])
+    f['workoutsRel']=1.0 if n<=2 else (0.5 if n<=5 else 0.25)   # works matter most when race history is thin
     f['_low_conf']=[k for k in ('speed','class','connections','workouts') if f[k] is None] + (['<4 lines'] if len(h['pps'])<4 else [])
     return f
 
@@ -45,7 +49,7 @@ def score_race(race):
     comp={}
     for k in W['weights']:
         comp[k]=z([f[k] for f in F])
-    scores=[sum(W['weights'][k]*comp[k][i] for k in W['weights']) for i in range(len(hs))]
+    scores=[sum(W['weights'][k]*comp[k][i]*(F[i]['workoutsRel'] if k=='workouts' else 1.0) for k in W['weights']) for i in range(len(hs))]
     T=W['softmax_temperature']; ex=[math.exp(s/T) for s in scores]; tot=sum(ex); probs=[e/tot for e in ex]
     return hs,F,comp,scores,probs
 

@@ -1,9 +1,10 @@
 import type { Factor, Horse, Weights } from './types'
+import { paceScores } from './pace'
 
-export const FACTORS: Factor[] = ['speed', 'class', 'distance', 'connections', 'equipment', 'workouts']
+export const FACTORS: Factor[] = ['speed', 'class', 'distance', 'connections', 'equipment', 'workouts', 'pace']
 export const FACTOR_LABEL: Record<Factor, string> = {
   speed: 'Speed figures', class: 'Class', distance: 'Distance fit',
-  connections: 'Jockey / trainer', equipment: 'Equipment', workouts: 'Workouts',
+  connections: 'Jockey / trainer', equipment: 'Equipment', workouts: 'Workouts', pace: 'Pace fit',
 }
 
 function zscores(vals: (number | null)[]): number[] {
@@ -24,9 +25,12 @@ export function mlToProb(ml: string | null): number | null {
 }
 
 export function scoreRace(horses: Horse[], w: Weights, temp: number): Scored[] {
-  const z: Record<string, number[]> = {}
-  for (const f of FACTORS) z[f] = zscores(horses.map(h => h.features[f]))
-  const raw = horses.map((_, i) => FACTORS.reduce((s, f) => s + w[f] * z[f][i], 0))
+  const z = {} as Record<Factor, number[]>
+  const pace = paceScores(horses.map(h => h.style)).scores
+  for (const f of FACTORS) z[f] = zscores(f === 'pace' ? pace : horses.map(h => h.features[f] ?? null))
+  const wt = (f: Factor) => w[f] ?? 0
+  // Workouts count most when a horse has little race history (workoutsRel: 1, 0.5 or 0.25).
+  const raw = horses.map((h, i) => FACTORS.reduce((s, f) => s + wt(f) * z[f][i] * (f === 'workouts' ? h.workoutsRel : 1), 0))
   const ex = raw.map(s => Math.exp(s / temp))
   const tot = ex.reduce((a, b) => a + b, 0)
   const mlRaw = horses.map(h => mlToProb(h.ml))
@@ -36,6 +40,18 @@ export function scoreRace(horses: Horse[], w: Weights, temp: number): Scored[] {
     z: Object.fromEntries(FACTORS.map(f => [f, z[f][i]])) as Record<Factor, number>,
     mlProb: mlRaw[i] === null || mlTot === 0 ? null : (mlRaw[i] as number) / mlTot,
   }))
+}
+
+// Overall ability for the simulation: the weighted factors without pace (pace is simulated instead of scored).
+export function ability(s: Scored, w: Weights): number {
+  let num = 0, den = 0
+  for (const f of FACTORS) {
+    if (f === 'pace') continue
+    const wf = w[f] ?? 0
+    num += wf * s.z[f] * (f === 'workouts' ? s.horse.workoutsRel : 1)
+    den += wf
+  }
+  return den ? num / den : 0
 }
 
 // Plackett-Luce: probability of an exact finishing order from per-horse win probabilities.
